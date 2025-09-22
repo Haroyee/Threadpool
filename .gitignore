@@ -44,4 +44,5 @@
 .vscode
 output
 lib
-Makeflie
+#makefile
+.makefile
