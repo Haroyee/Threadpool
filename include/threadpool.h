@@ -10,233 +10,93 @@
 #include <functional>
 #include <unordered_map>
 #include <thread>
+#include <future>
 
-// Any类型：可以接收任意数据的类型
-class Any
-{
-public:
-    Any() = default;
-    ~Any() = default;
-    Any(const Any &) = delete;
-    Any &operator=(const Any &) = delete;
-    Any(Any &&) = default;
-    Any &operator=(Any &&) = default;
-
-    // 这个构造函数可以让Any类型接收任意其它的数据
-    template <typename T> // T:int    Derive<int>
-    Any(T data) : base_(std::make_unique<Derive<T>>(data))
-    {
-    }
-
-    // 这个方法能把Any对象里面存储的data数据提取出来
-    template <typename T>
-    T cast_()
-    {
-        Derive<T> *pd = dynamic_cast<Derive<T> *>(base_.get());
-        if (pd == nullptr)
-        {
-            throw "type is unmatch!";
-        }
-        return pd->data_;
-    }
-
-private:
-    // 基类类型
-    class Base
-    {
-    public:
-        virtual ~Base() = default;
-    };
-
-    // 派生类类型
-    template <typename T>
-    class Derive : public Base
-    {
-    public:
-        Derive(T data) : data_(data)
-        {
-        }
-        T data_; // 保存了任意的其它类型
-    };
-
-private:
-    // 定义一个基类的指针
-    std::unique_ptr<Base> base_;
-};
-
-// 实现一个信号量类
-class Semaphore
-{
-public:
-    Semaphore(int limit = 0)
-        : resLimit_(limit)
-    {
-    }
-    ~Semaphore() = default;
-
-    // 获取一个信号量资源
-    void wait()
-    {
-        std::unique_lock<std::mutex> lock(mtx_);
-        // 等待信号量有资源，没有资源的话，会阻塞当前线程
-        cond_.wait(lock, [&]() -> bool
-                   { return resLimit_ > 0; });
-        resLimit_--;
-    }
-
-    // 增加一个信号量资源
-    void post()
-    {
-        std::unique_lock<std::mutex> lock(mtx_);
-        resLimit_++;
-        // linux下condition_variable的析构函数什么也没做
-        // 导致这里状态已经失效，无故阻塞
-        cond_.notify_all(); // 等待状态，释放mutex锁 通知条件变量wait的地方，可以起来干活了
-    }
-
-private:
-    int resLimit_;
-    std::mutex mtx_;
-    std::condition_variable cond_;
-};
-
-// Task类型的前置声明
-class Task;
-
-// 实现接收提交到线程池的task任务执行完成后的返回值类型Result
-class Result
-{
-public:
-    Result(std::shared_ptr<Task> task, bool isValid = true);
-    ~Result() = default;
-
-    // setVal方法，获取任务执行完的返回值的
-    void setVal(Any any);
-
-    // get方法，用户调用这个方法获取task的返回值
-    Any get();
-
-private:
-    Any any_;                    // 存储任务的返回值
-    Semaphore sem_;              // 线程通信信号量
-    std::shared_ptr<Task> task_; // 指向对应获取返回值的任务对象
-    std::atomic_bool isValid_;   // 返回值是否有效
-};
-
-// 任务抽象基类
-class Task
-{
-public:
-    Task();
-    ~Task() = default;
-    void exec();
-    void setResult(Result *res);
-
-    // 用户可以自定义任意任务类型，从Task继承，重写run方法，实现自定义任务处理
-    virtual Any run() = 0;
-
-private:
-    Result *result_; // Result对象的声明周期 》 Task的
-};
-
-// 线程池支持的模式
-enum class PoolMode
+enum class PoolMode // 线程池模式
 {
     MODE_FIXED,  // 固定数量的线程
-    MODE_CACHED, // 线程数量可动态增长
+    MODE_CACHED, // 线程数量可动态增长（cache模式）
 };
 
-// 线程类型
-class Thread
+enum class Priority // 任务优先级
+{
+    HIGH = 2,   // 高优先级
+    NORMAL = 1, // 普通优先级
+    LOW = 0     // 低优先级
+};
+
+class Task // 包装任务
 {
 public:
-    // 线程函数对象类型
-    using ThreadFunc = std::function<void(int)>;
-
-    // 线程构造
-    Thread(ThreadFunc func);
-    // 线程析构
-    ~Thread();
-    // 启动线程
-    void start();
-
-    // 获取线程id
-    int getId() const;
+    Task(Priority &p, std::function<void()> &f);
+    ~Task() = default;
+    /*重载运算符，用于堆的排序*/
+    bool operator<(const Task &tsk) const; // 小于返回true，优先级更高，但是大顶堆
+    bool operator>(const Task &tsk) const; // 大于返回true，优先级更高，但是小顶堆
 
 private:
-    ThreadFunc func_;
-    static int generateId_;
-    int threadId_; // 保存线程id
+    Priority prio;              // 任务优先级
+    std::function<void()> func; // 用于接受std::package_task类型，std::package_task是一个无返回值无参对象
 };
 
-/*
-example:
-ThreadPool pool;
-pool.start(4);
-
-class MyTask : public Task
-{
-    public:
-        void run() { // 线程代码... }
-};
-
-pool.submitTask(std::make_shared<MyTask>());
-*/
-// 线程池类型
-class ThreadPool
+class Threadpool
 {
 public:
-    // 线程池构造
-    ThreadPool();
+    Threadpool(int initSize = std::thread::hardware_concurrency(), int upperSize = std::thread::hardware_concurrency() * 2);
+    ~Threadpool();
+    // 拷贝函数与拷贝赋值函数删除
+    Threadpool(const Threadpool &t) = delete;
+    Threadpool &operator=(const Threadpool &t) = delete;
 
-    // 线程池析构
-    ~ThreadPool();
+    int getCurThdSize() const;       // 获取当前线程数量
+    int getIdleThdSize() const;      // 获取当前空闲线程数量
+    int getCurTskSize() const;       // 获取当前任务数量
+    void setPoolMode(PoolMode mode); // 设置线程模式
+    void shutDown();                 // 关闭线程池
 
-    // 设置线程池的工作模式
-    void setMode(PoolMode mode);
+    template <typename F, typename... Args>
+    auto submit(Priority prio = Priority::NORMAL, F &&func, Args &&...args) // 带优先级提交
+        -> std::future<typename std::result_of_t<F(Args...)>>
+    {
+        std::unique_lock<mutex> lock(taskQueMtx);
+        this->taskCv.
+    };
 
-    // 设置task任务队列上线阈值
-    void setTaskQueMaxThreshHold(int threshhold);
+    template <typename F, typename... Args>
+    auto submitLowTsk(F &&func, Args &&...args) // 低优先级提交任务
+        -> std::future<typename std::result_of_t<F(Args...)>>;
 
-    // 设置线程池cached模式下线程阈值
-    void setThreadSizeThreshHold(int threshhold);
+    template <typename F, typename... Args>
+    auto submitNormalTsk(F &&func, Args &&...args) // 普通优先级提交任务
+        -> std::future<typename std::result_of_t<F(Args...)>>;
 
-    // 给线程池提交任务
-    Result submitTask(std::shared_ptr<Task> sp);
-
-    // 开启线程池
-    void start(int initThreadSize = std::thread::hardware_concurrency());
-
-    ThreadPool(const ThreadPool &) = delete;
-    ThreadPool &operator=(const ThreadPool &) = delete;
+    template <typename F, typename... Args>
+    auto submitHighTsk(F &&func, Args &&...args) // 高优先级提交任务
+        -> std::future<typename std::result_of_t<F(Args...)>>;
 
 private:
-    // 定义线程函数
-    void threadFunc(int threadid);
-
-    // 检查pool的运行状态
-    bool checkRunningState() const;
+    void workThread();
 
 private:
-    // std::vector<std::unique_ptr<Thread>> threads_; // 线程列表
-    std::unordered_map<int, std::unique_ptr<Thread>> threads_; // 线程列表
+    /*线程相关变量*/
+    std::unordered_map<int, std::unique_ptr<std::thread>> threads; // 线程哈希表
+    int initThreadSize;                                            // 初始线程数量
+    int threadUpperThresh;                                         // cache模式下线程上限阈值
+    std::atomic<int> curThreadSize;                                // 当前线程数量
+    std::atomic<int> idleThreadSize;                               // 当前空闲线程数量
 
-    int initThreadSize_;             // 初始的线程数量
-    int threadSizeThreshHold_;       // 线程数量上限阈值
-    std::atomic_int curThreadSize_;  // 记录当前线程池里面线程的总数量
-    std::atomic_int idleThreadSize_; // 记录空闲线程的数量
+    /*任务相关变量*/
+    std::priority_queue<Task> tasks; // 任务队列，默认大顶堆
+    int taskUpperThresh;             // 任务上限阀值
+    std::atomic<int> curTaskSize;    // 当前任务数量
 
-    std::queue<std::shared_ptr<Task>> taskQue_; // 任务队列
-    std::atomic_int taskSize_;                  // 任务的数量
-    int taskQueMaxThreshHold_;                  // 任务队列数量上限阈值
+    /*线程互斥锁与条件变量*/
+    std::mutex taskQueMtx;            // 保证任务队列的线程安全
+    std::condition_variable taskCv;   // 任务条件变量
+    std::condition_variable threadCv; // 线程条件变量
 
-    std::mutex taskQueMtx_;            // 保证任务队列的线程安全
-    std::condition_variable notFull_;  // 表示任务队列不满
-    std::condition_variable notEmpty_; // 表示任务队列不空
-    std::condition_variable exitCond_; // 等到线程资源全部回收
-
-    PoolMode poolMode_;              // 当前线程池的工作模式
-    std::atomic_bool isPoolRunning_; // 表示当前线程池的启动状态
+    PoolMode poolMode;      // 当前线程池的工作模式
+    std::atomic<bool> stop; // 线程池停止标志
 };
 
 #endif
