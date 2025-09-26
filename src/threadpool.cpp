@@ -9,65 +9,122 @@ Task::Task(Priority &p, std::function<void()> &f) : prio(p), func(f) {}
 // 操作符号重构
 bool Task::operator<(const Task &tsk) const // 大顶堆
 {
-    return static_cast<int>(this->prio) < static_cast<int>(tsk.prio);
-}
-bool Task::operator>(const Task &tsk) const // 小顶堆
-{
     return static_cast<int>(this->prio) > static_cast<int>(tsk.prio);
+}
+
+Priority &Task::getPrio() // 返回优先级
+{
+    return prio;
+};
+const std::function<void()> &Task::getFunc() const
+{
+    return func;
 }
 
 /*threadpool类*/
 // 构造函数
-Threadpool::Threadpool(int initSize = std::thread::hardware_concurrency(), int upperSize = std::thread::hardware_concurrency() * 2)
+Threadpool::Threadpool(size_t initSize = std::thread::hardware_concurrency(), size_t upperSize = std::thread::hardware_concurrency() * 2)
     : initThreadSize(initSize),
       threadUpperThresh(upperSize),
-      curThreadSize(0),
       idleThreadSize(0),
-      curTaskSize(0),
       taskUpperThresh(maxTaskSize),
       poolMode(PoolMode::MODE_FIXED),
-      stop(false)
+      stopFlag(false)
+
 {
-    for (int i = 0; i < initSize; ++i)
-    {
-        ++idleThreadSize;
-        std::unique_ptr<std::thread> t = std::make_unique<std::thread>(workThread);
-        tasks.emplace(t->get_id(), t);
-        ++curThreadSize;
-    }
 }
 Threadpool::~Threadpool()
 {
-    if (!stop)
-        stop = true;
+    if (!stopFlag)
+        stopFlag = true;
     this->threadCv.notify_all();
     for (auto i = this->threads.begin(); i != this->threads.end(); ++i)
     {
         if (i->second->joinable())
             i->second->join();
     }
-}
-int Threadpool::getCurThdSize() const
-{
-    return this->curThreadSize;
-}
-
-int Threadpool::getCurTskSize() const
-{
-    return this->curTaskSize;
+    while (threads.size())
+    {
+    }
 }
 
-int Threadpool::getIdleThdSize() const
+void Threadpool::start()
 {
+    for (int i = 0; i < initThreadSize; ++i)
+        addThread();
+}
+
+size_t Threadpool::getCurThdSize() const
+{
+    return threads.size();
+}
+
+size_t Threadpool::getCurTskSize() const
+{
+
+    return tasks.size();
+}
+
+size_t Threadpool::getIdleThdSize() const
+{
+
     return this->idleThreadSize;
 }
 void Threadpool::shutDown()
 {
-    this->stop = true;
+    std::lock_guard<std::mutex> lock(taskQueMtx);
+    this->stopFlag = true;
+    while (tasks.size())
+        tasks.pop();
 }
 void Threadpool::setPoolMode(PoolMode mode)
 {
-    if (!stop)
+    if (stopFlag)
         return;
     this->poolMode = mode;
+}
+
+void Threadpool::addThread()
+{
+    ++idleThreadSize;
+    std::unique_ptr<std::thread> t = std::make_unique<std::thread>(&Threadpool::workThread, this);
+    threads.emplace(t->get_id(), std::move(t));
+}
+void Threadpool::workThread()
+{
+
+    while (true)
+    {
+        std::unique_lock<std::mutex> lock(taskQueMtx);
+        if (poolMode == PoolMode::MODE_CACHED || stopFlag)
+        {
+            if (!threadCv.wait_for(lock, std::chrono::seconds(60), [this]() -> bool
+                                   { return !this->tasks.empty() || this->stopFlag; }) ||
+                stopFlag)
+            {
+                --idleThreadSize;
+                threads.erase(std::this_thread::get_id());
+            }
+        }
+        else
+        {
+            threadCv.wait(lock, [this]() -> bool
+                          { return !tasks.empty() || stopFlag; });
+        }
+        --idleThreadSize;
+        if (tasks.empty())
+        {
+            ++idleThreadSize;
+            continue;
+        }
+
+        std::function<void()> taskFunc = tasks.top().getFunc();
+        tasks.pop();
+        lock.unlock();
+        taskFunc();
+        lock.lock();
+        ++idleThreadSize;
+        lock.unlock();
+        taskCv.notify_one();
+    }
 }
