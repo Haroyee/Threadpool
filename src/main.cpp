@@ -10,7 +10,7 @@ long long heavy_task(int n)
     // 关键：用固定次数的循环放大任务耗时，避免溢出/编译器优化导致的“耗时不准”
     for (int i = 0; i < 1'000'000; ++i)
     {
-        sum += (n + i) % 1000; // 简单计算，避免编译器优化掉循环
+        sum *= i; // 简单计算，避免编译器优化掉循环
     }
     return sum;
 }
@@ -49,6 +49,7 @@ int main()
     end = std::chrono::system_clock::now();
     elapsed_seconds = end - start;
     std::cout << "单线程总耗时: " << elapsed_seconds.count() << "s\n";
+    threadpool.~Threadpool();
 
     return 0;
 }

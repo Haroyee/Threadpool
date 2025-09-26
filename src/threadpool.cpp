@@ -1,7 +1,7 @@
 #include "../include/threadpool.h"
 #include <iostream>
 
-const int maxTaskSize = 1024;
+const size_t maxTaskSize = 1024;
 
 /*Task类*/
 // 构造函数
@@ -43,14 +43,11 @@ Threadpool::~Threadpool()
         if (i->second->joinable())
             i->second->join();
     }
-    while (threads.size())
-    {
-    }
 }
 
 void Threadpool::start()
 {
-    for (int i = 0; i < initThreadSize; ++i)
+    for (size_t i = 0; i < initThreadSize; ++i)
         addThread();
 }
 
@@ -96,7 +93,7 @@ void Threadpool::workThread()
     while (true)
     {
         std::unique_lock<std::mutex> lock(taskQueMtx);
-        if (poolMode == PoolMode::MODE_CACHED || stopFlag)
+        if (poolMode == PoolMode::MODE_CACHED && tasks.empty() && getCurThdSize() > initThreadSize && idleThreadSize > 0 || stopFlag)
         {
             if (!threadCv.wait_for(lock, std::chrono::seconds(60), [this]() -> bool
                                    { return !this->tasks.empty() || this->stopFlag; }) ||
@@ -104,6 +101,7 @@ void Threadpool::workThread()
             {
                 --idleThreadSize;
                 threads.erase(std::this_thread::get_id());
+                return;
             }
         }
         else
