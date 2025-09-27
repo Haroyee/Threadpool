@@ -1,13 +1,11 @@
 #include "../include/threadpool.h"
 #include <iostream>
 
-<<<<<<< HEAD
+
 const size_t maxTaskSize = 1024;      // 最大任务数量
 const size_t destroyTime = 60 * 1000; // 任务销毁等待时间(ms)
 const size_t subTime = 5 * 1000;      // 提交失败等待时间(ms)
-=======
 const size_t maxTaskSize = 1024;
->>>>>>> b53158879ae91dc0161a7b2589d74428ddf68d56
 
 /*Task类*/
 // 构造函数
