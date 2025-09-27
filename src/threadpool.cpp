@@ -43,9 +43,6 @@ Threadpool::~Threadpool()
         stopFlag = true;
     this->threadCv.notify_all();
 
-    if (threadManager->joinable())
-        threadManager->join();
-
     for (auto i = this->threads.begin(); i != this->threads.end(); ++i)
     {
         if (i->second->joinable())
