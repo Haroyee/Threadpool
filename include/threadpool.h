@@ -29,10 +29,10 @@ enum class Priority // 任务优先级
 class Task // 包装任务
 {
 public:
-    Task(Priority &p, std::function<void()> &f);
+    Task(Priority &p, std::function<void()> &);
     ~Task() = default;
     /*重载运算符，用于堆的排序*/
-    bool operator<(const Task &tsk) const; // 小于返回true，优先级更高，但是大顶堆
+    bool operator<(const Task &) const; // 小于返回true，优先级更高，但是大顶堆
     Priority &getPrio();
     const std::function<void()> &getFunc() const;
 
@@ -47,16 +47,21 @@ public:
     Threadpool(size_t, size_t);
     ~Threadpool();
     // 拷贝函数与拷贝赋值函数删除
-    Threadpool(const Threadpool &t) = delete;
-    Threadpool &operator=(const Threadpool &t) = delete;
+    Threadpool(const Threadpool &) = delete;
+    Threadpool &operator=(const Threadpool &) = delete;
 
     void start(); // 启动线程
 
-    size_t getCurThdSize() const;    // 获取当前线程数量
-    size_t getIdleThdSize() const;   // 获取当前空闲线程数量
-    size_t getCurTskSize() const;    // 获取当前任务数量
-    void setPoolMode(PoolMode mode); // 设置线程模式
-    void shutDown();                 // 关闭线程池
+    size_t getCurThdSize() const;              // 获取当前线程数量
+    size_t getIdleThdSize() const;             // 获取当前空闲线程数量
+    size_t getCurTskSize() const;              // 获取当前任务数量
+    void setPoolMode(const PoolMode);          // 设置线程模式
+    void shutDown();                           // 关闭线程池
+    void setInitThreadSize(const size_t &);    // 设置初始线程数量
+    void setThreadUpperThresh(const size_t &); // 设置cache模式下线程上限阈值
+    void setTaskUpperThresh(const size_t &);   // 设置任务上限阀值
+    void setDestroyWaitTime(const size_t &);   // 空闲线程销毁等待时间
+    void setSubmitWaitTime(const size_t &);    // 设置提交等待时间
 
     template <typename F, typename... Args>
     auto submit(Priority prio, F &&func, Args &&...args)
@@ -80,7 +85,7 @@ public:
         std::unique_lock<std::mutex>
             lock(taskQueMtx);
         // 等待超过1s视为提交失败
-        if (!this->taskCv.wait_for(lock, std::chrono::seconds(1), [this]() -> bool
+        if (!this->taskCv.wait_for(lock, submitWaitTime, [this]() -> bool
                                    { return this->tasks.size() < this->taskUpperThresh && !this->stopFlag; }))
             throw std::runtime_error("Task submission failed, Please try again later.");
 
@@ -117,8 +122,8 @@ public:
     }
 
 private:
-    void workThread();
-    void addThread();
+    void workThread(); // 工作线程函数
+    void addThread();  // 添加线程
 
 private:
     /*线程相关变量*/
@@ -138,6 +143,13 @@ private:
 
     PoolMode poolMode;          // 当前线程池的工作模式
     std::atomic<bool> stopFlag; // 线程池停止标志
+
+    /*时间变量*/
+    std::chrono::milliseconds destroyWaitTime; // 空闲线程销毁等待时间
+    std::chrono::milliseconds submitWaitTime;  // 提交等待时间
+
+    /*线程管理器*/
+    std::unique_ptr<std::thread> threadManager;
 };
 
 #endif
