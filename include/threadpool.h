@@ -52,6 +52,7 @@ public:
 
     void start(); // 启动线程
 
+<<<<<<< HEAD
     size_t getCurThdSize() const;        // 获取当前线程数量
     size_t getCurTskSize() const;        // 获取当前任务数量
     void setPoolMode(const PoolMode);    // 设置线程模式
@@ -61,6 +62,18 @@ public:
     void setTaskUpperThresh(size_t &);   // 设置任务上限阀值
     void setDestroyWaitTime(size_t &);   // 空闲线程销毁等待时间
     void setSubmitWaitTime(size_t &);    // 设置提交等待时间
+=======
+    const size_t getCurThdSize() const;              // 获取当前线程数量
+    const size_t getIdleThdSize() const;             // 获取当前空闲线程数量
+    const size_t getCurTskSize() const;              // 获取当前任务数量
+    void setPoolMode(const PoolMode);          // 设置线程模式
+    void shutDown();                           // 关闭线程池
+    void setInitThreadSize(const size_t &);    // 设置初始线程数量
+    void setThreadUpperThresh(const size_t &); // 设置cache模式下线程上限阈值
+    void setTaskUpperThresh(const size_t &);   // 设置任务上限阀值
+    void setDestroyWaitTime(const size_t &);   // 空闲线程销毁等待时间
+    void setSubmitWaitTime(const size_t &);    // 设置提交等待时间
+>>>>>>> e6410ed293f60736ebd79fc719c5798c82d97821
 
     template <typename F, typename... Args>
     auto submit(Priority prio, F &&func, Args &&...args)

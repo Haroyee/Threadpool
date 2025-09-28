@@ -69,17 +69,22 @@ void Threadpool::start() // 启动线程池
     }
 }
 
-size_t Threadpool::getCurThdSize() const // 获取当前线程数量
+const size_t Threadpool::getCurThdSize() const // 获取当前线程数量
 {
     return threads.size();
 }
 
-size_t Threadpool::getCurTskSize() const // 获取当前任务数量
+const size_t Threadpool::getCurTskSize() const // 获取当前任务数量
 {
 
     return tasks.size();
 }
 
+const size_t Threadpool::getIdleThdSize() const // 获取空闲线程数量
+{
+
+    return this->idleThreadSize;
+}
 void Threadpool::shutDown() // 关闭线程
 {
     std::lock_guard<std::mutex> lock(mtx);
