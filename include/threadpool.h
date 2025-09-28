@@ -52,8 +52,8 @@ public:
 
     void start(); // 启动线程
 
-    size_t getCurThdSize() const;        // 获取当前线程数量
-    size_t getCurTskSize() const;        // 获取当前任务数量
+    const size_t getCurThdSize() const;  // 获取当前线程数量
+    const size_t getCurTskSize() const;  // 获取当前任务数量
     void setPoolMode(const PoolMode);    // 设置线程模式
     void shutDown();                     // 关闭线程池
     void setInitThreadSize(size_t &);    // 设置初始线程数量
@@ -85,7 +85,7 @@ public:
             std::unique_lock<std::mutex> lock(mtx);
             // 等待超过1s视为提交失败
             if (!this->submitTaskCv.wait_for(lock, submitWaitTime, [this]() -> bool
-                                             { return this->tasks.size() < this->taskUpperThresh && !this->stopFlag; }))
+                                             { return this->getCurTskSize() < this->taskUpperThresh && !this->stopFlag; }))
                 throw std::runtime_error("Task submission failed, Please try again later.");
 
             tasks.emplace(prio, taskFunc); // 入队
