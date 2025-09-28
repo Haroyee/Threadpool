@@ -1,9 +1,10 @@
 #include "../include/threadpool.h"
 #include <iostream>
+#include <iomanip> //输出格式化
 
-const size_t maxTaskSize = 1024;      // 最大任务数量
-const size_t destroyTime = 60 * 1000; // 任务销毁等待时间(ms)
-const size_t subTime = 5 * 1000;      // 提交失败等待时间(ms)
+const size_t maxTaskSize = 32867;     // 最大任务数量
+const size_t destroyTime = 30 * 1000; // 任务销毁等待时间(ms)
+const size_t subTime = 1 * 1000;      // 提交失败等待时间(ms)
 
 /*Task类*/
 // 构造函数
@@ -41,12 +42,19 @@ Threadpool::~Threadpool()
 {
     if (!stopFlag)
         stopFlag = true;
-    this->threadCv.notify_all();
+    addThreadCv.notify_all();
+    subThreadCv.notify_all();
+    executeTaskCv.notify_all();
+
+    if (addThreadManager->joinable())
+        addThreadManager->join();
+    if (subThreadManager->joinable())
+        subThreadManager->join();
 
     for (auto i = this->threads.begin(); i != this->threads.end(); ++i)
     {
-        if (i->second->joinable())
-            i->second->join();
+        if (i->second.joinable())
+            i->second.join();
     }
 }
 
@@ -54,6 +62,11 @@ void Threadpool::start() // 启动线程池
 {
     for (size_t i = 0; i < initThreadSize; ++i)
         addThread();
+    if (poolMode == PoolMode::MODE_CACHED)
+    {
+        addThreadManager = std::unique_ptr<std::thread>(new std::thread(&Threadpool::addManagerThread, this));
+        subThreadManager = std::unique_ptr<std::thread>(new std::thread(&Threadpool::subManagerThread, this));
+    }
 }
 
 size_t Threadpool::getCurThdSize() const // 获取当前线程数量
@@ -67,14 +80,9 @@ size_t Threadpool::getCurTskSize() const // 获取当前任务数量
     return tasks.size();
 }
 
-size_t Threadpool::getIdleThdSize() const // 获取空闲线程数量
-{
-
-    return this->idleThreadSize;
-}
 void Threadpool::shutDown() // 关闭线程
 {
-    std::lock_guard<std::mutex> lock(taskQueMtx);
+    std::lock_guard<std::mutex> lock(mtx);
     this->stopFlag = true;
     while (tasks.size())
         tasks.pop();
@@ -86,79 +94,131 @@ void Threadpool::setPoolMode(PoolMode mode) // 设置线程模式
     poolMode = mode;
 }
 
-void Threadpool::setInitThreadSize(const size_t &size) // 设置初始线程数量
+void Threadpool::setInitThreadSize(size_t &size) // 设置初始线程数量
 {
     if (stopFlag)
         return;
     initThreadSize = size;
 }
-void Threadpool::setThreadUpperThresh(const size_t &size) // 设置cache模式下线程上限阈值
+void Threadpool::setThreadUpperThresh(size_t &size) // 设置cache模式下线程上限阈值
 {
     if (stopFlag)
         return;
     threadUpperThresh = size;
 }
-void Threadpool::setTaskUpperThresh(const size_t &size) // 设置任务上限阀值
+void Threadpool::setTaskUpperThresh(size_t &size) // 设置任务上限阀值
 {
     if (stopFlag)
         return;
     taskUpperThresh = size;
 }
-void Threadpool::setDestroyWaitTime(const size_t &time) // 空闲线程销毁等待时间
+void Threadpool::setDestroyWaitTime(size_t &time) // 空闲线程销毁等待时间
 {
     if (stopFlag)
         return;
     destroyWaitTime = std::chrono::milliseconds(time);
 }
-void Threadpool::setSubmitWaitTime(const size_t &time) // 设置提交等待时间
+void Threadpool::setSubmitWaitTime(size_t &time) // 设置提交等待时间
 {
     if (stopFlag)
         return;
     submitWaitTime = std::chrono::milliseconds(time);
 }
 
-void Threadpool::addThread() // 增加线程函数，在非start()函数中需要在锁中
+void Threadpool::addThread() // 增加线程函数，需在锁中运行
 {
-    ++idleThreadSize;
-    std::unique_ptr<std::thread> t = std::make_unique<std::thread>(&Threadpool::workThread, this);
-    threads.emplace(t->get_id(), std::move(t));
+    if (getCurThdSize() < threadUpperThresh)
+    {
+        std::thread t(&Threadpool::workThread, this);
+        std::thread::id thread_id = t.get_id();
+        threads.emplace(thread_id, std::move(t));
+        std::cout << "新增线程 : " << std::setw(2) << thread_id << " 当前线程数 : " << std::setw(2) << getCurThdSize() << std::endl;
+    }
+}
+
+void Threadpool::subThread() // 销毁线程函数，需在锁中运行
+{
+    if (getCurThdSize() - idleThreadSize >= initThreadSize) // 注意判断条件为>=
+    {
+        for (auto id : idleThreadId)
+        {
+            auto &t = threads.at(id);
+            if (t.joinable())
+                t.join();
+            threads.erase(id);
+
+            std::cout << "销毁线程 : " << std::setw(2) << id << " 当前线程数 : " << std::setw(2) << getCurThdSize() << std::endl;
+        }
+        idleThreadId.clear();
+    }
 }
 void Threadpool::workThread() // 线程函数
 {
 
-    while (true)
+    while (!stopFlag)
     {
-        std::unique_lock<std::mutex> lock(taskQueMtx);
-        if (poolMode == PoolMode::MODE_CACHED && tasks.empty() && getCurThdSize() > initThreadSize && idleThreadSize > 0 || stopFlag)
+        std::function<void()> taskFunc;
         {
-            if (!threadCv.wait_for(lock, destroyWaitTime, [this]() -> bool
-                                   { return !this->tasks.empty() || this->stopFlag; }) ||
-                stopFlag)
+            std::unique_lock<std::mutex> lock(mtx);
+
+            bool flag = executeTaskCv.wait_for(lock, destroyWaitTime, [this]() -> bool
+                                               { return !(this->tasks.empty()) || this->stopFlag; }); // 超时标志
+            bool destoryFlag = !flag && (getCurThdSize() - idleThreadSize) > initThreadSize && tasks.empty();
+
+            if ((poolMode == PoolMode::MODE_CACHED && destoryFlag) || stopFlag)
             {
-                --idleThreadSize;
-                threads.erase(std::this_thread::get_id());
+                idleThreadId.emplace_back(std::this_thread::get_id()); // 将空闲线程id入队
+                ++idleThreadSize;
+                lock.unlock();
+                subThreadCv.notify_one();
                 return;
             }
+            if (tasks.empty())
+            {
+                lock.unlock();
+                continue;
+            }
+            else
+            {
+                taskFunc = tasks.top().getFunc();
+                tasks.pop();
+            }
         }
-        else
-        {
-            threadCv.wait(lock, [this]() -> bool
-                          { return !this->tasks.empty() || this->stopFlag; });
-        }
-        --idleThreadSize;
-        if (tasks.empty())
-        {
-            ++idleThreadSize;
-            continue;
-        }
+        if (taskFunc)
+            taskFunc();
+        submitTaskCv.notify_one();
+        subThreadCv.notify_one();
+    }
+}
 
-        std::function<void()> taskFunc = tasks.top().getFunc();
-        tasks.pop();
-        lock.unlock();
-        taskFunc();
-        lock.lock();
-        ++idleThreadSize;
-        lock.unlock();
-        taskCv.notify_one();
+void Threadpool::addManagerThread() // 新增线程的线程管理函数
+{
+    while (!stopFlag)
+    {
+        {
+            std::unique_lock<std::mutex> lock(mtx);
+            addThreadCv.wait(lock, [this]()
+                             { return this->getCurThdSize() < this->threadUpperThresh || stopFlag; });
+            if (stopFlag)
+                return;
+            addThread();
+        }
+        executeTaskCv.notify_one();
+    }
+}
+void Threadpool::subManagerThread() // 销毁线程的线程管理函数
+{
+    while (!stopFlag)
+    {
+        {
+            std::unique_lock<std::mutex> lock(mtx);
+            subThreadCv.wait(lock, [this]()
+                             { return this->tasks.empty() || stopFlag; });
+
+            if (stopFlag)
+                return;
+            subThread();
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(10));
     }
 }

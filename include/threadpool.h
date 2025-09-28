@@ -52,16 +52,15 @@ public:
 
     void start(); // 启动线程
 
-    size_t getCurThdSize() const;              // 获取当前线程数量
-    size_t getIdleThdSize() const;             // 获取当前空闲线程数量
-    size_t getCurTskSize() const;              // 获取当前任务数量
-    void setPoolMode(const PoolMode);          // 设置线程模式
-    void shutDown();                           // 关闭线程池
-    void setInitThreadSize(const size_t &);    // 设置初始线程数量
-    void setThreadUpperThresh(const size_t &); // 设置cache模式下线程上限阈值
-    void setTaskUpperThresh(const size_t &);   // 设置任务上限阀值
-    void setDestroyWaitTime(const size_t &);   // 空闲线程销毁等待时间
-    void setSubmitWaitTime(const size_t &);    // 设置提交等待时间
+    size_t getCurThdSize() const;        // 获取当前线程数量
+    size_t getCurTskSize() const;        // 获取当前任务数量
+    void setPoolMode(const PoolMode);    // 设置线程模式
+    void shutDown();                     // 关闭线程池
+    void setInitThreadSize(size_t &);    // 设置初始线程数量
+    void setThreadUpperThresh(size_t &); // 设置cache模式下线程上限阈值
+    void setTaskUpperThresh(size_t &);   // 设置任务上限阀值
+    void setDestroyWaitTime(size_t &);   // 空闲线程销毁等待时间
+    void setSubmitWaitTime(size_t &);    // 设置提交等待时间
 
     template <typename F, typename... Args>
     auto submit(Priority prio, F &&func, Args &&...args)
@@ -81,21 +80,19 @@ public:
         std::function<void()> taskFunc = [taskPackage]()
         { (*taskPackage)(); };
 
-        // 任务入队
-        std::unique_lock<std::mutex>
-            lock(taskQueMtx);
-        // 等待超过1s视为提交失败
-        if (!this->taskCv.wait_for(lock, submitWaitTime, [this]() -> bool
-                                   { return this->tasks.size() < this->taskUpperThresh && !this->stopFlag; }))
-            throw std::runtime_error("Task submission failed, Please try again later.");
+        {
+            // 任务入队
+            std::unique_lock<std::mutex> lock(mtx);
+            // 等待超过1s视为提交失败
+            if (!this->submitTaskCv.wait_for(lock, submitWaitTime, [this]() -> bool
+                                             { return this->tasks.size() < this->taskUpperThresh && !this->stopFlag; }))
+                throw std::runtime_error("Task submission failed, Please try again later.");
 
-        tasks.emplace(prio, taskFunc); // 入队
-        // 若线程池处于cache模式,且没有空闲线程，任务队列有任务，当前线程量小于最大线程数时，增加新线程
-        if (poolMode == PoolMode::MODE_CACHED && idleThreadSize == 0 && 0 < getCurTskSize() && getCurThdSize() < threadUpperThresh)
-            addThread();
+            tasks.emplace(prio, taskFunc); // 入队
+        }
 
-        lock.unlock();
-        threadCv.notify_one();
+        executeTaskCv.notify_one();
+        addThreadCv.notify_one();
 
         return resultFuture;
     }
@@ -122,24 +119,32 @@ public:
     }
 
 private:
-    void workThread(); // 工作线程函数
-    void addThread();  // 添加线程
+    void workThread();       // 工作线程函数
+    void addThread();        // 添加线程
+    void subThread();        // 销毁线程
+    void addManagerThread(); // 增加线程管理
+    void subManagerThread(); // 销毁线程管理
 
 private:
     /*线程相关变量*/
-    std::unordered_map<std::thread::id, std::unique_ptr<std::thread>> threads; // 线程哈希表
-    size_t initThreadSize;                                                     // 初始线程数量
-    size_t threadUpperThresh;                                                  // cache模式下线程上限阈值
-    std::atomic<size_t> idleThreadSize;                                        // 当前空闲线程数量
+    std::unordered_map<std::thread::id, std::thread> threads; // 线程表
+    std::vector<std::thread::id> idleThreadId;                // 空闲线程id队列
+    size_t initThreadSize;                                    // 初始线程数量
+    size_t threadUpperThresh;                                 // cache模式下线程上限阈值
+    std::atomic<size_t> idleThreadSize;                       // 当前空闲线程数量
 
     /*任务相关变量*/
     std::priority_queue<Task> tasks; // 任务队列，默认大顶堆
     size_t taskUpperThresh;          // 任务上限阀值
 
-    /*线程互斥锁与条件变量*/
-    mutable std::mutex taskQueMtx;    // 保证任务队列的线程安全,mutable确保可以在const内修改
-    std::condition_variable taskCv;   // 任务条件变量
-    std::condition_variable threadCv; // 线程条件变量
+    /*线程互斥锁*/
+    std::mutex mtx;
+
+    /*条件变量*/
+    std::condition_variable submitTaskCv;  // 提交任务条件变量
+    std::condition_variable executeTaskCv; // 执行任务条件变量
+    std::condition_variable addThreadCv;   // 增加线程条件变量
+    std::condition_variable subThreadCv;   // 减少线程条件变量
 
     PoolMode poolMode;          // 当前线程池的工作模式
     std::atomic<bool> stopFlag; // 线程池停止标志
@@ -149,7 +154,8 @@ private:
     std::chrono::milliseconds submitWaitTime;  // 提交等待时间
 
     /*线程管理器*/
-    std::unique_ptr<std::thread> threadManager;
+    std::unique_ptr<std::thread> addThreadManager;
+    std::unique_ptr<std::thread> subThreadManager;
 };
 
 #endif
