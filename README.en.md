@@ -83,7 +83,3 @@ int main() {
 
 - C++11 or higher
 - Standard thread library support
-
-## License
-
-This project uses the MIT License. Please refer to the LICENSE file for details.
