@@ -72,7 +72,7 @@ int main() {
 - `submitWaitTime`: Task submission wait time (default: 1 second)
 
 ## Compilation Requirements
-- C++17 or higher
+- C++11 or higher
 - Standard thread library support
 
 ## License
