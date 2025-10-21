@@ -83,3 +83,17 @@ int main() {
 
 - C++11 or higher
 - Standard thread library support
+
+## Execution Method
+
+- Windows system
+
+```shell
+mingw32-make run
+```
+
+- Linux system
+
+```shell
+make run
+```

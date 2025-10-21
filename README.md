@@ -83,3 +83,17 @@ int main() {
 
 - C++11 或更高版本
 - 支持标准线程库
+
+## 执行方式
+
+- Windows 系统
+
+```shell
+mingw32-make run
+```
+
+- linux 系统
+
+```shell
+make run
+```
