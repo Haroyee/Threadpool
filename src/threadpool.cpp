@@ -3,7 +3,7 @@
 #include <iomanip> //输出格式化
 
 const size_t maxTaskSize = 32867;     // 最大任务数量
-const size_t destroyTime = 30 * 1000; // 任务销毁等待时间(ms)
+const size_t destroyTime = 10 * 1000; // 任务销毁等待时间(ms)
 const size_t subTime = 1 * 1000;      // 提交失败等待时间(ms)
 
 /*Task类*/

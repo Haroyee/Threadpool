@@ -27,24 +27,32 @@ all: $(OUTPUT_DIR)/$(EXE_NAME)
 $(OUTPUT_DIR)/$(EXE_NAME): $(OBJ) $(BUILD_DIR) $(OUTPUT_DIR)
 	$(CC) $(OBJ) -o $@ $(LDFLAGS) $(LDLIBS)
 #编译生成目标文件 依赖.cpp文件
-$(BUILD_DIR)/%.o:$(SRC_DIR)/%.cpp $(SRC)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp $(SRC) $(BUILD_DIR)
 	$(CC) -c $< -o $@ $(CFLAGS)
 
-$(BUILD_DIR):
-	if not exist "$@" mkdir "$@"
-$(OUTPUT_DIR):
-	if not exist "$@" mkdir "$@"
 
 ifeq ($(OS), Windows_NT) # Windows 系统
 clean:
 	if exist $(BUILD_DIR)\*.o del /f /q $(BUILD_DIR)\*.o
 	if exist $(OUTPUT_DIR)\$(EXE_NAME) del /f /q $(OUTPUT_DIR)\$(EXE_NAME)
-else # Linux/macOS 或其他类 Unix 系统
-clean:	
-	if exist $(BUILD_DIR)/*.o rm -f $(BUILD_DIR)/*.o
-	if exist $(OUTPUT_DIR)/$(EXE_NAME) rm -f $(OUTPUT_DIR)/$(EXE_NAME)
-endif
-
+$(BUILD_DIR):
+	if not exist $@ mkdir $@
+$(OUTPUT_DIR):
+	if not exist $@ mkdir $@
 run: all
 	chcp 65001
 	./$(OUTPUT_DIR)/$(EXE_NAME)
+else # Linux/macOS 或其他类 Unix 系统
+clean:
+	@if [  -d "$(BUILD_DIR)/*.o" ]; then rm -f $(BUILD_DIR)/*.o;fi
+	@if [  -d "$(OUTPUT_DIR)/$(EXE_NAME)" ]; then rm -f $(OUTPUT_DIR)/$(EXE_NAME);fi
+$(BUILD_DIR):
+	@if [ ! -d "$@" ]; then mkdir $@; fi
+$(OUTPUT_DIR):
+	@if [ ! -d "$@" ]; then mkdir $@; fi
+run: all
+	./$(OUTPUT_DIR)/$(EXE_NAME)
+
+endif
+
+.PHONY:all clean run
