@@ -146,6 +146,7 @@ void Threadpool::subThread() // 销毁线程函数，需在锁中运行
             if (t.joinable())
                 t.join();
             threads.erase(id);
+            idleThreadSize--;
 
             std::cout << "销毁线程 : " << std::setw(2) << id << " 当前线程数 : " << std::setw(2) << getCurThdSize() << std::endl;
         }
