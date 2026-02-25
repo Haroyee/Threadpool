@@ -138,7 +138,7 @@ void Threadpool::addThread() // 增加线程函数，需在锁中运行
 
 void Threadpool::subThread() // 销毁线程函数，需在锁中运行
 {
-    if (getCurThdSize() - idleThreadSize >= initThreadSize) // 注意判断条件为>=
+    if (getCurThdSize() > initThreadSize && idleThreadSize > 0) // 注意判断条件为>=
     {
         for (auto id : idleThreadId)
         {
