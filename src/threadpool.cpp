@@ -200,7 +200,7 @@ void Threadpool::addManagerThread() // 新增线程的线程管理函数
         {
             std::unique_lock<std::mutex> lock(mtx);
             addThreadCv.wait(lock, [this]()
-                             { return this->getCurThdSize() < this->threadUpperThresh || stopFlag; });
+                             { return (this->getCurThdSize() < this->threadUpperThresh && poolMode == PoolMode::MODE_CACHED) || stopFlag; });
             if (stopFlag)
                 return;
             addThread();
