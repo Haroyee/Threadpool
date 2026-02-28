@@ -166,7 +166,7 @@ void Threadpool::workThread() // 线程函数
                                                { return !(this->tasks.empty()) || this->stopFlag; }); // 超时标志
             bool destoryFlag = !flag && (getCurThdSize() - idleThreadSize) > initThreadSize && tasks.empty();
 
-            if ((poolMode == PoolMode::MODE_CACHED && destoryFlag) || stopFlag)
+            if ((poolMode == PoolMode::MODE_CACHED && destoryFlag) || stopFlag || (poolMode == PoolMode::MODE_FIXED && threads.size() - idleThreadSize > initThreadSize))
             {
                 idleThreadId.emplace_back(std::this_thread::get_id()); // 将空闲线程id入队
                 ++idleThreadSize;

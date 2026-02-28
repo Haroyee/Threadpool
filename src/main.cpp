@@ -31,6 +31,7 @@ int main()
     }
 
     // 等待所有任务完成
+    threadpool.setPoolMode(PoolMode::MODE_FIXED); // 切换回固定模式，观察线程销毁
     for (auto &fut : vr)
     {
         fut.get();
