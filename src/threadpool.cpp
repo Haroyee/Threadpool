@@ -167,7 +167,8 @@ void Threadpool::workThread() // 线程函数
             bool destoryFlag = !flag && (getCurThdSize() - idleThreadSize) > initThreadSize && tasks.empty();
 
             if ((poolMode == PoolMode::MODE_CACHED && destoryFlag) || stopFlag || (poolMode == PoolMode::MODE_FIXED && threads.size() - idleThreadSize > initThreadSize))
-            {
+            { // poolMode == PoolMode::MODE_FIXED && threads.size() - idleThreadSize > initThreadSize
+                // 表示在固定线程模式下，线程数量超过初始线程数量的部分可以被销毁，且保留初始线程数量的线程不进入空闲状态保证任务执行
                 idleThreadId.emplace_back(std::this_thread::get_id()); // 将空闲线程id入队
                 ++idleThreadSize;
                 lock.unlock();
